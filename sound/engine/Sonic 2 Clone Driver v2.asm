@@ -206,10 +206,9 @@ DACUpdateSample:
 
 	; From Vladikcomper:
 	; "We need the Z80 to be stopped before this command executes and to be started directly afterwards."
-	SMPS_stopZ80
-	SMPS_waitZ80
+	SMPS_stopZ80_safe
 	move.b	d0,(SMPS_z80_ram+MegaPCM_DAC_Number).l
-	SMPS_startZ80
+	SMPS_startZ80_safe
 
 locret_71CAA:
 	rts
@@ -469,10 +468,9 @@ DoPauseMusic:
 	; From Vladikcomper:
 	; "Playing sample $7F executes pause command."
 	; "We need the Z80 to be stopped before this command executes and to be started directly afterwards."
-	SMPS_stopZ80
-	SMPS_waitZ80
+	SMPS_stopZ80_safe
 	move.b  #$7F,(SMPS_z80_ram+MegaPCM_DAC_Number).l	; pause DAC
-	SMPS_startZ80
+	SMPS_startZ80_safe
 
 .locret:
 	rts
@@ -501,10 +499,9 @@ DoUnpauseMusic:
 	; From Vladikcomper:
 	; "Playing sample $00 cancels pause mode."
 	; "We need the Z80 to be stopped before this command executes and to be started directly afterwards."
-	SMPS_stopZ80
-	SMPS_waitZ80
+	SMPS_stopZ80_safe
 	clr.b  (SMPS_z80_ram+MegaPCM_DAC_Number).l	; unpause DAC
-	SMPS_startZ80
+	SMPS_startZ80_safe
 
 	rts
 
@@ -624,16 +621,15 @@ ptr_flgend
 ; ---------------------------------------------------------------------------
 ; Sound_E1: PlaySega:
 PlaySegaSound:
-	move.b	#(MegaPCM_VolumeTbls&$F000)>>8,d0
-	SMPS_stopZ80
-	SMPS_waitZ80
+	moveq	#(MegaPCM_VolumeTbls&$F000)>>8,d0
+	SMPS_stopZ80_safe
 
 	; This is a DAC SFX: set to full volume
 	move.b	d0,(SMPS_z80_ram+MegaPCM_LoadBank.volume+1).l
 	move.b	d0,(SMPS_z80_ram+MegaPCM_Init_PCM.volume+1).l
 
 	move.b	#dSega_S2,(SMPS_z80_ram+MegaPCM_DAC_Number).l	; Queue Sega PCM
-	SMPS_startZ80
+	SMPS_startZ80_safe
 	    if SMPS_IdlingSegaSound
 		move.w	#$11,d1
 ; loc_71FC0:
@@ -847,19 +843,19 @@ Sound_PlayBGM:
 	move.b	d4,SMPS_Track.TempoDivider(a1)
 	move.b	d6,SMPS_Track.StackPointer(a1)	; Set "gosub" (coord flag F8h) stack init value
 	move.b	d5,SMPS_Track.DurationTimeout(a1)	; Set duration of first "note"
-	move.w	(a4)+,d0			; Load PSG channel pointer
+	move.w	(a4)+,d0			; Load PWM channel pointer
 	ext.l	d0				; Clownacy | Fix negative pointers
 	add.l	a3,d0				; Relative pointer
 	move.w	d0,SMPS_Track.DataPointer+2(a1)	; Store track pointer
 	swap	d0
 	move.b	d0,SMPS_Track.DataPointer+1(a1)	; Store track pointer
-	move.b	(a4)+,SMPS_Track.Transpose(a1)	; Load PSG modifier
-	move.b	(a4)+,SMPS_Track.Volume(a1)	; Load PSG modifier
+	move.b	(a4)+,SMPS_Track.Transpose(a1)	; Load PWM modifier
+	move.b	(a4)+,SMPS_Track.Volume(a1)	; Load PWM modifier
 	adda.w	d6,a1
 	dbf	d7,.bgm_pwmloadloop
 
 .bgm_pwmdone:
-	endif
+    endif
 
 	lea	SMPS_RAM.v_sfx_track_ram(a6),a1
 	moveq	#SMPS_SFX_TRACK_COUNT-1,d7	; 6 SFX tracks
@@ -947,12 +943,11 @@ PWMInitBytes:
 ; ===========================================================================
 
 PlaySFX_Ring:
-	btst	#v_ring_speaker,SMPS_RAM.bitfield1(a6)	; Is the ring sound playing on right speaker?
+	bchg	#v_ring_speaker,SMPS_RAM.bitfield1(a6)	; Is the ring sound playing on right speaker?
 	bne.s	.gotringspeaker			; Branch if not
 	move.b	#SndID_RingLeft,d7		; Play ring sound in left speaker
 ; loc_721EE:
 .gotringspeaker:
-	bchg	#v_ring_speaker,SMPS_RAM.bitfield1(a6)	; Change speaker
 	bra.s	Sound_PlaySFX.play_sfx
 
     if SMPS_PushSFXBehaviour
@@ -1618,10 +1613,9 @@ StopAllSound:
 	; From Vladikcomper:
 	; "Playing sample $80 forces to stop playback."
 	; "We need the Z80 to be stopped before this command executes and to be started directly afterwards."
-	SMPS_stopZ80
-	SMPS_waitZ80
+	SMPS_stopZ80_safe
 	move.b  #$80,(SMPS_z80_ram+MegaPCM_DAC_Number).l	; stop DAC playback
-	SMPS_startZ80
+	SMPS_startZ80_safe
 
     if SMPS_EnablePWM
 	bsr.w	PWMSilenceAll
@@ -1846,11 +1840,10 @@ SetDACVolume:
 	ori.b	#(MegaPCM_VolumeTbls&$F000)>>8,d0
 
 WriteDACVolume:
-	SMPS_stopZ80
-	SMPS_waitZ80
+	SMPS_stopZ80_safe
 	move.b	d0,(SMPS_z80_ram+MegaPCM_LoadBank.volume+1).l
 	move.b	d0,(SMPS_z80_ram+MegaPCM_Init_PCM.volume+1).l
-	SMPS_startZ80
+	SMPS_startZ80_safe
 	rts
 ; End of function SetDACVolume
 
@@ -1906,7 +1899,6 @@ WriteFMIorII:
 
 ; List of cycle counts from various revisions of WriteFMI (Write cycles + 'wait for YM' cycles)
 
-
 ; (SMPS 68k Type 1a)
 ;  Michael Jackson's Moonwalker:
 ;	32(6/2) + 68(14/0)
@@ -1919,8 +1911,6 @@ WriteFMIorII:
 ;	32(6/2) + 80(17/0) (Interestingly, this uses the Type 1a version, with some nops, so is this an *early* Type 1b driver?)
 ;  Mega PCM standard:
 ;	52(10/3) + 102(21/0)
-;  Sonic 2 Clone Driver v2:
-;	40(7/3) + 84(18/0)
 ;  Golden Axe 2:
 ;	32(6/2) + 44(9/0)
 ;  Nekketsu Koukou Dodgeball Bu Soccer Hen MD:
@@ -1943,18 +1933,23 @@ WriteFMIorII:
 
 ; sub_7272E:
 WriteFMI:
-	SMPS_stopZ80
-	SMPS_waitZ80
-	lea	(SMPS_ym2612_a0).l,a0		; 12(3/0)
-	SMPS_waitYM				; 28(6/0)
-	move.b	d0,SMPS_ym2612_a0-SMPS_ym2612_a0(a0)	; ym2612_a0	; 8(1/1)
-	SMPS_waitYM				; 28(6/0)
-	move.b	d1,SMPS_ym2612_d0-SMPS_ym2612_a0(a0)		; ym2612_d0	; 8(1/1)
-	SMPS_waitYM				; 28(6/0)
-	move.b	#$2A,SMPS_ym2612_a0-SMPS_ym2612_a0(a0)	; ym2612_a0	; 12(2/1)
-	SMPS_startZ80				; Total: 40(7/3) + 84(18/0)
+	SMPS_stopZ80_safe
+	tst.b	(Z80_RAM+MegaPCM_Busy_Flag).l
+	bne.s	.delayForZ80
+	lea	(SMPS_ym2612_a0).l,a0			; 12(3/0)
+	SMPS_waitYM
+	move.b	d0,(a0)					; 8(1/1)
+	move.b	d1,SMPS_ym2612_d0-SMPS_ym2612_a0(a0)	; 12(2/1)
+	SMPS_delayYM
+	SMPS_waitYM
+	move.b	#$2A,(a0)				; 12(2/1)
+	SMPS_startZ80_safe
 	rts
 ; End of function WriteFMI
+
+.delayForZ80:
+	SMPS_startZ80_safe
+	bra.s	WriteFMI
 
 ; ===========================================================================
 ; loc_7275A:
@@ -1966,18 +1961,23 @@ WriteFMIIPart:
 
 ; sub_72764:
 WriteFMII:
-	SMPS_stopZ80
-	SMPS_waitZ80
-	lea	(SMPS_ym2612_a0).l,a0		; 12(3/0)
-	SMPS_waitYM				; 28(6/0)
-	move.b	d0,SMPS_ym2612_a1-SMPS_ym2612_a0(a0)	; ym2612_a1	; 8(1/1)
-	SMPS_waitYM				; 28(6/0)
-	move.b	d1,SMPS_ym2612_d1-SMPS_ym2612_a0(a0)		; ym2612_d1	; 8(1/1)
-	SMPS_waitYM				; 28(6/0)
-	move.b	#$2A,SMPS_ym2612_a0-SMPS_ym2612_a0(a0)	; ym2612_a0	; 16(3/1)
-	SMPS_startZ80				; Total: 44(8/3) + 84(18/0)
+	SMPS_stopZ80_safe
+	tst.b	(Z80_RAM+MegaPCM_Busy_Flag).l
+	bne.s	.delayForZ80
+	lea	(SMPS_ym2612_a0).l,a0			; 12(3/0)
+	SMPS_waitYM
+	move.b	d0,SMPS_ym2612_a1-SMPS_ym2612_a0(a0)	; 12(2/1)
+	move.b	d1,SMPS_ym2612_d1-SMPS_ym2612_a0(a0)	; 12(2/1)
+	SMPS_delayYM
+	SMPS_waitYM
+	move.b	#$2A,(a0)				; 12(2/1)
+	SMPS_startZ80_safe
 	rts
 ; End of function WriteFMII
+
+.delayForZ80:
+	SMPS_startZ80_safe
+	bra.s	WriteFMII
 
 ; ||||||||||||||| S U B	R O U T	I N E |||||||||||||||||||||||||||||||||||||||
 
@@ -2479,8 +2479,6 @@ cfJumpReturn:
 	moveq	#0,d0
 	move.b	SMPS_Track.StackPointer(a5),d0	; Track stack pointer
 	movea.l	(a5,d0.w),a4			; Set track return address
-	clr.l	(a5,d0.w)			; Set 'popped' value to zero
-	addq.w	#2,a4				; Skip jump target address from gosub flag
 	addq.b	#4,SMPS_Track.StackPointer(a5)	; Actually 'pop' value
 	rts
 ; ===========================================================================
@@ -2707,18 +2705,18 @@ cfStopSpecialFM4:
 ; ===========================================================================
 ; loc_72C26:
 cfSetVoice:
-	moveq	#0,d0
-	move.b	(a4)+,d0				; Get new voice
-	move.b	d0,SMPS_Track.VoiceIndex(a5)		; Store it
+	move.b	(a4)+,SMPS_Track.VoiceIndex(a5)		; Store new voice
 	tst.b	SMPS_Track.VoiceControl(a5)		; Is this a PSG track?
 	bmi.s	locret_72CAA
 	btst	#2,SMPS_Track.PlaybackControl(a5)	; Is SFX overriding this track?
 	bne.s	locret_72CAA				; Return if yes
 	bsr.w	FMSilenceChannel
+	moveq	#0,d0
 	move.b	SMPS_Track.VoiceIndex(a5),d0		; Get new voice ID again
 
 cfSetVoiceCont:
 	movea.l	SMPS_Track.VoicePtr(a5),a1		; SFX track voice pointer
+
 ; ||||||||||||||| S U B	R O U T	I N E |||||||||||||||||||||||||||||||||||||||
 
 ; sub_72C4E:
@@ -2794,17 +2792,13 @@ SendVoiceTL:
 	moveq	#0,d0
 	move.b	SMPS_Track.VoiceIndex(a5),d0		; Current voice
 	movea.l	SMPS_Track.VoicePtr(a5),a1
-; loc_72CD8:
-.gotvoiceptr:
 	; Multiply d0 by 25 (size of FM voice)
 	adda.w	d0,a1
 	lsl.w	#3,d0
 	adda.w	d0,a1
 	adda.w	d0,a1
 	adda.w	d0,a1
-; loc_72CE6:
-.gotvoice:
-	lea	5(a1),a1			; Want TL (was '21(a0)' in original driver)
+	addq.w	#5,a1			; Want TL (was '21(a0)' in original driver)
 	move.b	SMPS_Track.Volume(a5),d3	; Get track volume attenuation
 	bmi.s	.locret				; If negative, stop
 
@@ -2816,7 +2810,6 @@ SendVoiceTL:
 	move.b	(a1)+,d1
 	bpl.s	.senttl
 	add.b	d3,d1			; Include additional attenuation
-	blo.s	.senttl
 	bsr.w	WriteFMIorII
 ; loc_72D12:
 .senttl:
@@ -2994,11 +2987,16 @@ cfRepeatAtPos:
 ; ===========================================================================
 ; loc_72E52:
 cfJumpToGosub:
+	move.b	(a4)+,-(sp)
+	move.w	(sp)+,d1
+	move.b	(a4)+,d1
+
 	subq.b	#4,SMPS_Track.StackPointer(a5)	; Add space for another target
 	moveq	#0,d0
 	move.b	SMPS_Track.StackPointer(a5),d0	; Current stack pointer
-	move.l	a4,(a5,d0.w)			; Put in current address (*before* target for jump!)
-	bra.s	cfJumpTo
+	move.l	a4,(a5,d0.w)			; Put in current address (after target for jump!)
+	adda.w	d1,a4		; Add to current position
+	rts
 ; ===========================================================================
 
 ; Clownacy | Since I reintroduced cfSendFMI, this flag is pointless
@@ -3024,14 +3022,13 @@ cfSilenceStopTrack:
 ; Has one parameter, the index (1-based) of the DAC sample to play.
 ;
 cfPlayDACSample:
-	move.b	#(MegaPCM_VolumeTbls&$F000)>>8,d0
-	SMPS_stopZ80
-	SMPS_waitZ80
+	moveq	#(MegaPCM_VolumeTbls&$F000)>>8,d0
+	SMPS_stopZ80_safe
 	move.b	(a4)+,(SMPS_z80_ram+MegaPCM_DAC_Number).l
 	; This is a DAC SFX: set to full volume
 	move.b	d0,(SMPS_z80_ram+MegaPCM_LoadBank.volume+1).l
 	move.b	d0,(SMPS_z80_ram+MegaPCM_Init_PCM.volume+1).l
-	SMPS_startZ80
+	SMPS_startZ80_safe
 	rts
 ; ===========================================================================
 ; Plays another song or SFX.
@@ -3131,29 +3128,29 @@ cfChanFMCommand:
 ; ---------------------------------------------------------------------------
 ; Music 'include's and pointers
 ; ---------------------------------------------------------------------------
-	include "sound/Sonic 2 Clone Driver v2 - Music.asm"
+	include "sound/Music.asm"
 
 ; ---------------------------------------------------------------------------
 ; SFX 'include's and pointers
 ; ---------------------------------------------------------------------------
-	include "sound/Sonic 2 Clone Driver v2 - SFX.asm"
+	include "sound/SFX.asm"
 
 ; ---------------------------------------------------------------------------
 ; Special SFX 'include's and pointers
 ; ---------------------------------------------------------------------------
     if SMPS_EnableSpecSFX
-	include "sound/Sonic 2 Clone Driver v2 - Special SFX.asm"
+	include "sound/Special SFX.asm"
     endif
 ; ---------------------------------------------------------------------------
 ; FM Universal Voice Bank
 ; ---------------------------------------------------------------------------
     if SMPS_EnableUniversalVoiceBank
-	include "sound/Sonic 2 Clone Driver v2 - FM Universal Voice Bank.asm"
+	include "sound/FM Universal Voice Bank.asm"
     endif
 ; ---------------------------------------------------------------------------
 ; PSG volume envelopes 'include's and pointers
 ; ---------------------------------------------------------------------------
-	include "sound/Sonic 2 Clone Driver v2 - PSG Volume Envelopes.asm"
+	include "sound/PSG Volume Envelopes.asm"
 
 ; ---------------------------------------------------------------------------
 ; Vladikcomper's Mega PCM DAC driver

@@ -26,7 +26,7 @@ ptr_dac8E:	DAC_Entry	15232, Tom,		MegaPCM_dpcm|MegaPCM_panLR	; $8E	- Floor-Tom
 ptr_dac8F:	DAC_Entry	15232, Bongo,		MegaPCM_dpcm|MegaPCM_panLR	; $8F	- Hi-Bongo
 ptr_dac90:	DAC_Entry	13064, Bongo,		MegaPCM_dpcm|MegaPCM_panLR	; $90	- Mid-Bongo
 ptr_dac91:	DAC_Entry	 9806, Bongo,		MegaPCM_dpcm|MegaPCM_panLR	; $91	- Low-Bongo
-ptr_dac92:	DAC_Entry	22050, SONICHELPME,	MegaPCM_pcm|MegaPCM_panLR|MegaPCM_pri	; $92	- SONIC HELP ME
+ptr_dac92:	DAC_Entry	21050, SONICHELPME,	MegaPCM_pcm|MegaPCM_panLR|MegaPCM_pri	; $92	- SONIC HELP ME
 	endif
 
 	if SMPS_S3DACSamples||SMPS_SKDACSamples||SMPS_S3DDACSamples

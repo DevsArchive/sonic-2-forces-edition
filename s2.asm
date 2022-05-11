@@ -63,11 +63,11 @@ gameRevision = 1
 
 ; >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 ; Sonic 2 Clone Driver v2 and SMPS2ASM
-	include "sound/engine/Sonic 2 Clone Driver v2 - Macros.asm"
-	include "sound/Sonic 2 Clone Driver v2 - Sound IDs.asm"
-	include "sound/Sonic 2 Clone Driver v2 - Compatibility.asm"
-	include "sound/engine/Sonic 2 Clone Driver v2 - RAM.asm"
-	include "sound/engine/Sonic 2 Clone Driver v2 - Constants.asm"
+	include "sound/engine/Macros.asm"
+	include "sound/Sound IDs.asm"
+	include "sound/Settings.asm"
+	include "sound/engine/RAM.asm"
+	include "sound/engine/Constants.asm"
 	include "sound/engine/_smps2asm_inc.asm"
 
 ; >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
@@ -1232,7 +1232,7 @@ ClearScreen:
 	rts
 ; End of function ClearScreen
 
-	include "sound/engine/Sonic 2 Clone Driver v2 - Functions.asm"
+	include "sound/engine/Functions.asm"
 
 ; ---------------------------------------------------------------------------
 ; Subroutine to pause the game

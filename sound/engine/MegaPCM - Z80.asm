@@ -16,12 +16,13 @@
 
 ; Memory variables
 
-MegaPCM_Stack		equ	0DFFh
+MegaPCM_Stack		equ	0DFEh
 MegaPCM_Ptr_InitPlayback equ	MegaPCM_Event_InitPlayback+1	; Init Playback event pointer
 MegaPCM_Ptr_SoundProc	equ	MegaPCM_Event_SoundProc+1	; Sound process event pointer
 MegaPCM_Ptr_Interrupt	equ	MegaPCM_Event_Interrupt+1	; Sound interrupt event pointer
 MegaPCM_Ptr_EndPlayback	equ	MegaPCM_Event_EndPlayback+1	; End playback event pointer
 MegaPCM_DAC_Number	equ	0DFFh				; Number of DAC sample to play ($81-based)
+MegaPCM_Busy_Flag	equ	0DFEh				; Set if the driver is in the middle of a YM2612 operation
 
 ; Look-up tables
 
@@ -53,8 +54,6 @@ MegaPCM_e_pos	equ	6	; end offset (in last bank)
 ; ---------------------------------------------------------------
 
 	di				; disable interrupts
-;	di				; Clownacy | Aren't these redundant?
-;	di				; Might as well save the space and cycles
 
 	; Setup variables
 	ld	sp,MegaPCM_Stack		; init SP
@@ -88,12 +87,12 @@ MegaPCM_Idle_WaitDAC:
 MegaPCM_LoadDAC:
 	sub	81h			; subtract 81h from DAC number
 	jr	c,MegaPCM_Idle_WaitDAC	; if a = 80h, branch
-	ld	b,0h			; Clownacy | Moved this here so it can be used to clear the other areas quicker
-	ld	(hl),b			; reset DAC number in RAM	; Clownacy | Now uses reg b (faster and smaller)
+	ld	b,0h
+	ld	(hl),b			; reset DAC number in RAM
 
 	; Load DAC table entry
 	ld	ix,MegaPCM_DAC_Table	; ix = DAC Table
-	ld	h,b			; Clownacy | Now uses reg b (faster and smaller)
+	ld	h,b
 	ld	l,a			; hl = DAC
 	add	hl,hl			; hl = DAC*2
 	add	hl,hl			; hl = DAC*4
@@ -123,19 +122,31 @@ MegaPCM_LoadDAC:
 ; Setup YM to playback DAC
 ; ---------------------------------------------------------------
 
-MegaPCM_SetupDAC:
-	; Wait for YM2612
--	bit	7,(iy+0)
-	jr	nz,-
+MegaPCM_WaitForYM2612:
+	bit	7,(iy+0)
+	jr	nz,MegaPCM_WaitForYM2612
+	ret
 
+; ---------------------------------------------------------------
+; Setup YM to playback DAC
+; ---------------------------------------------------------------
+
+MegaPCM_SetupDAC:
+	call	MegaPCM_WaitForYM2612
+	ld	a,1
+	ld	(MegaPCM_Busy_Flag),a
 	ld	(iy+0),2Bh		;
 	ld	(iy+1),80h		; YM => Enable DAC
 	ld	a,(ix+MegaPCM_flags)		; load flags
 	and	0C0h			; are pan bits set?
 	jr	z,+			; if not, branch
-        ld	(iy+2),0B6h		;
+	ld	(iy+2),0B6h		;
 	ld	(iy+3),a		; YM => Set Pan
-+	ld	(iy+0),2Ah		; setup YM to fetch DAC bytes
++
+	xor	a
+	ld	(MegaPCM_Busy_Flag),a
+	call	MegaPCM_WaitForYM2612
+	ld	(iy+0),2Ah		; setup YM to fetch DAC bytes
 	ret
 
 ; ---------------------------------------------------------------
@@ -310,11 +321,11 @@ MegaPCM_Int_Normal:
 
 MegaPCM_Int_NoOverride:
 	cp	80h			; stop flag?
-	jr	z,MegaPCM_StopDAC	; if yes, branch	; Clownacy | jp -> jr
+	jr	z,MegaPCM_StopDAC	; if yes, branch
 	jp	m,MegaPCM_PauseDAC	; if < 80h, branch
 	xor	a			; a = 0
 	ld	(MegaPCM_DAC_Number),a	; clear DAC number to prevent later ints
-	jr	MegaPCM_Event_SoundProc	; Clownacy | (jp -> jr)
+	jr	MegaPCM_Event_SoundProc
 
 ; ---------------------------------------------------------------
 ; Code to wait while playback is paused
@@ -328,7 +339,7 @@ MegaPCM_PauseDAC:
 	jr	nz,-			; if not, branch
 
 	call	MegaPCM_SetupDAC	; setup YM for playback
-	jr	MegaPCM_Event_SoundProc	; go on playing	; Clownacy | (jp -> jr)
+	jr	MegaPCM_Event_SoundProc	; go on playing
 
 ; ---------------------------------------------------------------
 ; Stop DAC playback and get back to idle loop
@@ -337,14 +348,6 @@ MegaPCM_PauseDAC:
 MegaPCM_StopDAC:
 	ld	(iy+1),80h		; stop sound
 	jp	MegaPCM_Idle_Loop
-
-; ---------------------------------------------------------------
-; Quit playback loop (used by Process_PCM/Process_DPCM)
-; ---------------------------------------------------------------
-	; Clownacy | Some portable duplicate code, moved to padding territory
-MegaPCM_QuitPlaybackLoop:
-	exx
-	jr	MegaPCM_Event_EndPlayback	; Clownacy | (jp -> jr)
 
 ; ---------------------------------------------------------------
 ; Routines to control bank-switching
@@ -423,7 +426,7 @@ MegaPCM_LoadBank:
 	xor	a	; a = 0
     endif
 	ld	(de), a	; A23
-.volume:	; Clownacy | Modified by SetupVolume
+.volume:	; Modified by SetupVolume
 	ld	d,MegaPCM_VolumeTbls>>8		; high byte of volume table pointer
 	exx
 	ret
@@ -437,6 +440,9 @@ MegaPCM_LoadBank:
 ;	C	= Pitch
 ;	DE	= Volume byte pointer
 ;	HL	= PCM byte pointer
+;	B'	= Current bank
+;	C'	= Final bank
+;	HL'	= Number of bytes in last bank
 ; ---------------------------------------------------------------
 
 ; ---------------------------------------------------------------
@@ -446,13 +452,13 @@ MegaPCM_LoadBank:
 MegaPCM_Reload_PCM:
 
 MegaPCM_Init_PCM:
-	call	MegaPCM_SetupDAC       
+	call	MegaPCM_SetupDAC
 	call	MegaPCM_InitBankSwitching
 	ld	c,(ix+MegaPCM_pitch)		; c  = pitch
 	ld	h,(ix+MegaPCM_s_pos+1)		;
 	ld	l,(ix+MegaPCM_s_pos)		; hl = Start offset
 	set	7,h				; make it 8000h-based if it's not (perverts memory damage if playing corrupted slots)
-.volume:	; Clownacy | Modified by SetupVolume
+.volume:	; Modified by SetupVolume
 	ld	d,MegaPCM_VolumeTbls>>8		; high byte of volume table pointer
 	ld	(iy+0),2Ah			; YM => prepare to fetch DAC bytes
 
@@ -463,10 +469,10 @@ MegaPCM_Init_PCM:
 MegaPCM_Process_PCM:
 
 	; Read sample's byte and send it to DAC with pitching
-	ld	e,(hl)			; 7	; Clownacy | get PCM byte, de = pointer to volume data
+	ld	e,(hl)			; 7	; get PCM byte, de = pointer to volume data
 	ld	b,c			; 4	; b = Pitch
 	djnz	$			; 8/13+	; wait until pitch zero
-	ld	a,(de)			; 7	; Clownacy | get volume-adjusted PCM byte
+	ld	a,(de)			; 7	; get volume-adjusted PCM byte
 	ld	(MegaPCM_YM_Port0_Data),a	; 13	; write to DAC
 	; Cycles: 39
 
@@ -481,10 +487,10 @@ MegaPCM_Process_PCM:
 MegaPCM_Process_PCM_writeme:
 	; jp	MegaPCM_Process_PCM_idle	; 10	; Self-modified code that overwrites the following when we're on the last bank
 	dec	hl			; 6	; decrease number of bytes to play in last bank
-	or	h			; 4	; is hl positive?
-	jp	p,MegaPCM_QuitPlaybackLoop	; 10	; if yes, quit playback loop
+	bit	7,h			; 8	; is hl positive?
+	jr	z,++			; 7/12	; if yes, quit playback loop
 -	exx				; 4	;
-	; Cycles: 28
+	; Cycles: 29
 
 	; Check if we should play a new sample
 -	ld	a,(MegaPCM_DAC_Number)		; 13	; load DAC number
@@ -502,9 +508,13 @@ MegaPCM_Process_PCM_idle:
 	call	MegaPCM_LoadNextBank
 	jp	-
 
+	; Quit playback loop
++	exx
+	jp	MegaPCM_Event_EndPlayback
+
 ; ---------------------------------------------------------------
-; Best cycles per loop:	115
-; Max Possible rate:	3,579.545 kHz / 115 = 31 kHz (NTSC)
+; Best cycles per loop:	116
+; Max Possible rate:	3,579.545 kHz / 116 = 30.8 kHz (NTSC)
 ; ---------------------------------------------------------------
 
 ; ===============================================================
@@ -516,7 +526,8 @@ MegaPCM_Process_PCM_idle:
 ;	C	= Pitch
 ;	DE	= DPCM byte pointer
 ;	HL	= Delta Table
-;	BC'	= YM2612 data port pointer
+;	B'	= Current bank
+;	C'	= Final bank
 ;	DE'	= Volume byte pointer
 ;	HL'	= Number of bytes in last bank
 ; ---------------------------------------------------------------
@@ -537,9 +548,6 @@ MegaPCM_Init_DPCM:
 	ld	(iy+0),2Ah		; YM => prepare to fetch DAC bytes
 	ld	b,80h			; init DAC value
 	ld	h,MegaPCM_DPCM_LowNibble>>8	; load delta table base
-	exx
-	ld	bc,MegaPCM_YM_Port0_Data
-	exx
 
 MegaPCM_Process_DPCM:
 
@@ -553,11 +561,11 @@ MegaPCM_Process_DPCM:
 	djnz	$			; 8/13+	; wait until pitch zero
 	ld	b,a			; 4	; b = DAC Value
 	exx				; 4
-	ld	e,a			; 4	; Clownacy | get address of volume-adjusted PCM byte
-	ld	a,(de)			; 7	; Clownacy | get volume-adjusted PCM byte
-	ld	(bc),a			; 7	; write to DAC
+	ld	e,a			; 4	; get address of volume-adjusted PCM byte
+	ld	a,(de)			; 7	; get volume-adjusted PCM byte
+	ld	(MegaPCM_YM_Port0_Data),a	; 13	; write to DAC
 	exx				; 4
-	; Cycles: 68
+	; Cycles: 74
 
 	dec	h			; 4	; load DPLC low nibble delta table base
 	ld	a,b			; 4	; load DAC Value
@@ -566,11 +574,11 @@ MegaPCM_Process_DPCM:
 	djnz	$			; 8/13+	; wait until pitch zero
 	ld	b,a			; 4	; b = DAC Value
 	exx				; 4
-	ld	e,a			; 4	; Clownacy | get address of volume-adjusted PCM byte
-	ld	a,(de)			; 7	; Clownacy | get volume-adjusted PCM byte
-	ld	(bc),a			; 7	; write to DAC
+	ld	e,a			; 4	; get address of volume-adjusted PCM byte
+	ld	a,(de)			; 7	; get volume-adjusted PCM byte
+	ld	(MegaPCM_YM_Port0_Data),a	; 13	; write to DAC
 	exx				; 4
-	; Cycles: 57
+	; Cycles: 63
 
 	; Increment DPCM byte pointer and switch the bank if necessary
 	inc	de			; 6	; next DPCM byte
@@ -583,10 +591,10 @@ MegaPCM_Process_DPCM:
 MegaPCM_Process_DPCM_writeme:
 	; jp	MegaPCM_Process_DPCM_idle	; 10	; Self-modified code that overwrites the following when we're on the last bank
 	dec	hl			; 6	; decrease number of bytes to play in last bank
-	or	h			; 4	; is hl positive?
-	jp	p,MegaPCM_QuitPlaybackLoop	; 10	; if yes, quit playback loop
+	bit	7,h			; 8	; is hl positive?
+	jr	z,++			; 7/12	; if yes, quit playback loop
 -	exx				; 4	;
-	; Cycles: 28
+	; Cycles: 29
 
 	; Check if we should play a new sample
 -	ld	a,(MegaPCM_DAC_Number)	; 13	; load DAC number
@@ -604,9 +612,13 @@ MegaPCM_Process_DPCM_idle:
 	call	MegaPCM_LoadNextBank
 	jp	-
 
+	; Quit playback loop
++	exx
+	jp	MegaPCM_Event_EndPlayback
+
 ; ---------------------------------------------------------------
-; Best cycles per loop:	201/2
-; Max possible rate:	3,579.545 kHz / 100.5 = 35.6 kHz (NTSC)
+; Best cycles per loop:	214/2
+; Max possible rate:	3,579.545 kHz / 107 = 33.4 kHz (NTSC)
 ; ---------------------------------------------------------------
 
 MegaPCM_LastBankNotReached:
@@ -623,7 +635,7 @@ MegaPCM_LastBankReached:
 	ld	a,2Bh
 	ld	(MegaPCM_Process_PCM_writeme),a
 	ld	(MegaPCM_Process_DPCM_writeme),a
-	ld	de,0F2B4h
+	ld	de,07CCBh
 	ld	(MegaPCM_Process_PCM_writeme+1),de
 	ld	(MegaPCM_Process_DPCM_writeme+1),de
 	ret
@@ -666,9 +678,9 @@ DAC_Entry macro vPitch,vOffset,vFlags
 	; the '*10's and '+5'.
 
 	if vFlags&MegaPCM_dpcm
-		db	(((((((3579545*10)*2)/vPitch)-(201*10))/(13*2))+5)/10)+1	; 01h	- Pitch (DPCM-converted)
+		db	(((((((3579545*10)*2)/vPitch)-(214*10))/(13*2))+5)/10)+1	; 01h	- Pitch (DPCM-converted)
 	else
-		db	((((((3579545*10)/vPitch)-(115*10))/13)+5)/10)+1		; 01h	- Pitch (PCM-converted)
+		db	((((((3579545*10)/vPitch)-(116*10))/13)+5)/10)+1		; 01h	- Pitch (PCM-converted)
 	endif
 	db	zmake68kBank(vOffset)		; 02h	- Start Bank
 	db	zmake68kBank(vOffset_End)	; 03h	- End Bank
